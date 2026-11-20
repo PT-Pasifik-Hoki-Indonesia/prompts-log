@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""prompts-log v0.4.0 — catat percakapan dengan AI yang mengubah file ke docs/prompts/<YYYYMMDD-HHMMSS>.md repo.
+"""prompts-log v0.4.1 — catat percakapan dengan AI yang mengubah file ke docs/prompts/<YYYYMMDD-HHMMSS>.md repo.
 
   prompts_log.py hook                       # dipanggil Stop hook, JSON di stdin
   prompts_log.py backfill <repo>           # entri asli dari transcript di Mac ini
@@ -310,15 +310,18 @@ def migrate(root):
 
 
 def covered(root):
-    """Hash commit yang sudah terwakili entri di docs/prompts (id git-… atau hash di baris Status)."""
+    """Hash commit yang sudah terwakili entri di docs/prompts (id git-…, hash di baris Status, atau dicari untuk entri 📦/⏳)."""
     text = all_text(root)
-    return set(re.findall(r'"id": "git-([0-9a-f]+)"', text)) | set(re.findall(r"-->\n\*\*Status:\*\* .*?`([0-9a-f]{7,})`", text))
+    pending = {re.search(r"`([0-9a-f]{7,})`", status(root, (m := json.loads(meta))["ts"], m["files"])) for meta, st in STATUS.findall(text) if "`" not in st}
+    return (set(re.findall(r'"id": "git-([0-9a-f]+)"', text)) | set(re.findall(r"-->\n\*\*Status:\*\* .*?`([0-9a-f]{7,})`", text))
+            | {h[1] for h in pending if h})
 
 
 def gap(root):
     seen = covered(root)
     log = git(root, "log", default_branch(root), "--no-merges", "--reverse", "--format=%h%x09%ad%x09%an%x09%s", "--date=short")
-    return [l for l in log.split("\n") if l and l.split("\t")[0] not in seen]
+    only_prompts = lambda h: all(f.startswith(DIR + "/") for f in git(root, "show", "--name-only", "--format=", h).split("\n") if f)
+    return [l for l in log.split("\n") if l and l.split("\t")[0] not in seen and not only_prompts(l.split("\t")[0])]
 
 
 def sintesis(root, h, text):

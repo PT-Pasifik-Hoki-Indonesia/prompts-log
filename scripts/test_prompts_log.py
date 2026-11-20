@@ -98,6 +98,15 @@ sys.argv = ["x"]; prompts_log.install_git_hook(repo); prompts_log.install_git_ho
 hook = open(os.path.join(repo, ".git/hooks/pre-commit")).read()
 assert hook.count("prompts-log: tandai") == 1 and os.access(os.path.join(repo, ".git/hooks/pre-commit"), os.X_OK)
 assert subprocess.run(["git", "-C", repo, "commit", "-qm", "c"]).returncode == 0, "hook memblokir commit"
+# 6b. gap: commit yang hanya berisi docs/prompts dilewati; commit dengan entri 📦 (belum ada hash) dianggap tercatat
+subprocess.run(["git", "-C", repo, "update-ref", "refs/remotes/origin/main", "HEAD"], check=True)
+subprocess.run(["git", "-C", repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"], check=True)
+open(os.path.join(D, ".skip"), "a").write("contoh\n")
+subprocess.run(["git", "-C", repo, "add", "-A"], check=True); subprocess.run(["git", "-C", repo, "commit", "-qm", "prompts saja"], check=True)
+subprocess.run(["git", "-C", repo, "update-ref", "refs/remotes/origin/main", "HEAD"], check=True)
+g = prompts_log.gap(repo)
+assert not any(l.endswith("\tc") for l in g), "commit dengan entri 📦 dianggap belum tercatat"
+assert not any(l.endswith("\tprompts saja") for l in g), "commit yang hanya berisi docs/prompts dianggap butuh entri"
 # 7. migrate: prompts.md lama dipecah per entri, skip pindah ke .skip, entri yang sudah ada tidak dobel
 old = ("# Prompts\n\n---\n<!-- prompts-log-skip lama-1 -->\n\n"
        '## 2026-01-02 10:00 · A · branch main · 🤖 sintesis\n<!-- prompts-log {"id": "git-abc1234", "ts": "2026-01-02T03:00:05Z", "files": ["x"]} -->\n'
