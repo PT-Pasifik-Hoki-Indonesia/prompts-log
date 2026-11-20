@@ -1,0 +1,7 @@
+{
+  "name": "psg",
+  "owner": { "name": "PT Pasifik Hoki Indonesia" },
+  "plugins": [
+    { "name": "prompts-log", "source": "./", "description": "Catat prompt yang mengubah file ke prompts.md." }
+  ]
+}

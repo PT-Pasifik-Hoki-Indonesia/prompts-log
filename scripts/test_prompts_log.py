@@ -1,0 +1,49 @@
+"""Tes cepat: python3 scripts/test_prompts_log.py — repo + transcript palsu, tanpa jaringan."""
+import json, os, subprocess, sys, tempfile, time
+from datetime import datetime, timezone
+
+S = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prompts_log.py")
+tmp = tempfile.mkdtemp()
+repo, other = os.path.join(tmp, "repo"), os.path.join(tmp, "luar")
+for r, url in ((repo, "https://github.com/PT-Pasifik-Hoki-Indonesia/x.git"), (other, "https://github.com/orang-lain/y.git")):
+    os.makedirs(r)
+    for c in (["init", "-q", "-b", "main"], ["remote", "add", "origin", url], ["config", "user.name", "Tester"],
+              ["config", "user.email", "t@example.com"], ["commit", "-q", "--allow-empty", "-m", "init"]):
+        subprocess.run(["git", "-C", r, *c], check=True)
+
+iso = lambda t: datetime.fromtimestamp(t, timezone.utc).isoformat().replace("+00:00", "Z")
+t0 = time.time() - 5
+user = lambda u, text, t: {"type": "user", "uuid": u, "timestamp": iso(t), "cwd": tmp, "message": {"content": text}}
+ai = lambda t, *blocks: {"type": "assistant", "timestamp": iso(t), "message": {"content": list(blocks)}}
+tool = lambda name, **inp: {"type": "tool_use", "id": name + str(len(inp)), "name": name, "input": inp}
+txt = lambda s: {"type": "text", "text": s}
+
+def run(lines):
+    tr = os.path.join(tmp, "abcdef12-sesi.jsonl")
+    open(tr, "w").write("\n".join(json.dumps(l) for l in lines))
+    subprocess.run([sys.executable, S, "hook"], input=json.dumps({"transcript_path": tr}), text=True, check=True,
+                   env={**os.environ, "PROMPTS_LOG_NO_STAGE": "1"})
+    p = os.path.join(repo, "prompts.md")
+    return open(p).read() if os.path.exists(p) else ""
+
+# 1. Edit tool + konteks: "ya lanjut" harus membawa usulan AI yang dijawabnya; rahasia disamarkan
+lines = [user("u1aaaaaaaa", "tambah fitur X, password=rahasia123", t0), ai(t0 + 1, txt("Ada dua opsi: A atau B. Lanjut?")),
+         user("u2bbbbbbbb", "ya lanjut A", t0 + 2),
+         ai(t0 + 3, tool("Edit", file_path=os.path.join(repo, "a.js"))), ai(t0 + 3, tool("Edit", file_path=os.path.join(other, "z.js")))]
+out = run(lines)
+assert "ya lanjut A" in out and "Ada dua opsi" in out and "`a.js`" in out, out
+assert "rahasia123" not in out and "z.js" not in out, "rahasia bocor / repo luar org ikut tercatat"
+assert "⏳ belum di-commit" in out and out.count("## ") == 1
+
+# 2. Perubahan lewat shell di giliran terakhir ikut tercatat
+t1 = time.time()
+open(os.path.join(repo, "b.txt"), "w").write("x")
+lines += [user("u3cccccccc", "ubah b lewat sed", t1 - 1), ai(t1, tool("Bash", command=f"sed -i '' s/a/b/ {repo}/b.txt"))]
+out = run(lines)
+assert "ubah b lewat sed" in out and "`b.txt`" in out, out
+assert out.count("## ") == 2, "entri dobel"
+
+# 3. Jalan ulang tidak menambah entri (idempoten), .gitattributes terpasang
+assert run(lines).count("## ") == 2
+assert "prompts.md merge=union" in open(os.path.join(repo, ".gitattributes")).read()
+print("ok")
