@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""prompts-log v0.1.0 — catat percakapan dengan AI yang mengubah file ke prompts.md repo.
+"""prompts-log v0.1.1 — catat percakapan dengan AI yang mengubah file ke prompts.md repo.
 
   prompts_log.py hook                       # dipanggil Stop hook, JSON di stdin
   prompts_log.py backfill <repo>           # entri asli dari transcript di Mac ini
@@ -17,6 +17,7 @@ EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 FILE = "prompts.md"
 FOLD_LINES = 6
 MARK = re.compile(r"<!-- prompts-log (\{.*?\}) -->")
+SKIP = re.compile(r"<!-- prompts-log-skip ([^>]*) -->")  # id entri yang sengaja dibuang (mis. percobaan), jangan ditulis ulang
 HEADER = ("# Prompts\n\nCatatan percakapan dengan AI yang menghasilkan perubahan file di repo ini.\n"
           "Diisi otomatis oleh plugin `prompts-log`. Jangan diedit manual, dan jangan tempel "
           "password/token di prompt: semuanya ikut tercatat ke GitHub dan Drive.\n\n---\n\n")
@@ -47,6 +48,7 @@ def repo_of(path):
 def clean(s):
     s = re.sub(r"<system-reminder>[\s\S]*?</system-reminder>", "", s).strip()
     s = re.sub(r"(?m)^#{1,6} +(.+)$", r"**\1**", s)  # heading di kutipan jangan menyaru jadi header entri
+    s = s.replace("<!-- prompts-log", "&lt;!-- prompts-log").replace("**Status:**", "*Status:*")
     s = SECRET.sub("[DISAMARKAN]", s)
     return KV_SECRET.sub(lambda m: m[1] + m[2] + "[DISAMARKAN]", s)
 
@@ -93,7 +95,12 @@ def epoch(ts):
 def parse(path, live=False):
     """Entri dari satu transcript: [{id, ts, cwd, branch, convo, files: {root: [rel]}}].
     live=True: giliran terakhir juga diperiksa untuk perubahan lewat shell (hanya valid tepat saat Stop)."""
-    out, convo, files, last_ai, asks, cur = [], [], {}, "", {}, {}
+    out, convo, files, last_ai, asks, cur = [], [], {}, "", {}, {"quoted": ""}
+
+    def ai_context():
+        if last_ai and last_ai != cur["quoted"]:
+            convo.append(quote_ai(last_ai))
+            cur["quoted"] = last_ai
     sid = os.path.basename(path)[:8]
 
     def close(final=False):
@@ -139,13 +146,14 @@ def parse(path, live=False):
         for b in content if isinstance(content, list) else []:
             if isinstance(b, dict) and b.get("type") == "tool_result" and b.get("tool_use_id") in asks:
                 r = b["content"] if isinstance(b["content"], str) else " ".join(x.get("text", "") for x in b["content"])
-                convo += [quote_ai(last_ai), "**👤 (pilih jawaban)** " + clean(r) + "\n"]
+                pairs = re.findall(r'"(.+?)"="(.*?)"', r) or [("", r)]
+                ai_context()
+                convo += [f"**🤖 (tanya)** {clean(q)}\n\n**👤 (pilih)** {clean(a)}\n" if q else f"**👤 (pilih)** {clean(a)}\n" for q, a in pairs]
         t = human_text(content)
         if not t or not t.strip() or t.lstrip().startswith(NOISE):
             continue
         close()  # giliran baru: tutup entri kalau giliran sebelumnya mengubah file
-        if last_ai:
-            convo.append(quote_ai(last_ai))
+        ai_context()
         convo.append("**👤** " + clean(t) + "\n")
         cur.update(id=f"{sid}-{o['uuid'][:8]}", cwd=o.get("cwd", ""), branch=o.get("gitBranch", ""), turn_ts=o["timestamp"])
     close(final=True)
@@ -194,7 +202,7 @@ def refresh(text, root):
 def write(root, entries, who, stage):
     path = os.path.join(root, FILE)
     text = open(path).read() if os.path.exists(path) else HEADER
-    seen = {json.loads(m)["id"] for m in MARK.findall(text)}
+    seen = {json.loads(m)["id"] for m in MARK.findall(text)} | {i for m in SKIP.findall(text) for i in m.split()}
     new = sorted((e for e in entries if e["id"] not in seen), key=lambda e: e["ts"])
     head, *blocks = re.split(r"(?m)^(?=## \d{4}-)", refresh(text, root) + "".join(render(root, e, who) for e in new))
     when = lambda b: datetime.fromisoformat(json.loads(MARK.search(b)[1])["ts"].replace("Z", "+00:00"))
@@ -212,7 +220,7 @@ def covered(root):
     """Hash commit yang sudah terwakili entri di prompts.md (id git-… atau hash di baris Status)."""
     path = os.path.join(root, FILE)
     text = open(path).read() if os.path.exists(path) else ""
-    return set(re.findall(r'"id": "git-([0-9a-f]+)"', text)) | set(re.findall(r"\*\*Status:\*\* .*?`([0-9a-f]{7,})`", text))
+    return set(re.findall(r'"id": "git-([0-9a-f]+)"', text)) | set(re.findall(r"-->\n\*\*Status:\*\* .*?`([0-9a-f]{7,})`", text))
 
 
 def gap(root):

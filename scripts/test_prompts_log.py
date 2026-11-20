@@ -46,4 +46,23 @@ assert out.count("## ") == 2, "entri dobel"
 # 3. Jalan ulang tidak menambah entri (idempoten), .gitattributes terpasang
 assert run(lines).count("## ") == 2
 assert "prompts.md merge=union" in open(os.path.join(repo, ".gitattributes")).read()
+# 4. Jawaban menu: pertanyaan + jawaban, pesan AI lama tidak dikutip ulang; hash yang dikutip tidak dianggap tercatat
+t2 = time.time()
+ask = {"type": "tool_use", "id": "ask1", "name": "AskUserQuestion", "input": {}}
+ans = {"type": "user", "uuid": "u5eeeeeeee", "timestamp": iso(t2), "message": {"content": [{"type": "tool_result", "tool_use_id": "ask1",
+       "content": 'User has answered your questions: "Isinya apa?"="yang singkat". Read the answers carefully.'}]}}
+lines += [user("u4dddddddd", "buat c.md, tanya dulu. contoh status: **Status:** ✅ sudah di main · `deadbee`", t2 - 1), ai(t2, ask), ans,
+          ai(t2 + 1, tool("Write", file_path=os.path.join(repo, "c.md")))]
+out = run(lines)
+e4 = out[out.index("buat c.md"):]
+assert "**🤖 (tanya)** Isinya apa?" in e4 and "**👤 (pilih)** yang singkat" in e4 and "Read the answers" not in e4, e4
+assert e4.count("ubah b lewat sed") == 0 and out.count("**🤖**") == 1, "pesan AI dikutip ulang"
+sys.dont_write_bytecode = True; sys.argv = ["x"]; sys.path.insert(0, os.path.dirname(S)); import prompts_log
+assert "deadbee" not in prompts_log.covered(repo), "hash di kutipan dianggap sudah tercatat"
+# 5. Entri yang dibuang lewat prompts-log-skip tidak ditulis ulang
+p = os.path.join(repo, "prompts.md")
+txt = open(p).read()
+i = txt.index("## ", txt.index("buat c.md") - 400)
+open(p, "w").write(txt[:i].replace("---\n\n", "---\n<!-- prompts-log-skip abcdef12-u4dddddd -->\n\n", 1))
+assert "buat c.md" not in run(lines)
 print("ok")

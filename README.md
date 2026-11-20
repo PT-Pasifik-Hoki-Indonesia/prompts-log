@@ -33,6 +33,12 @@ dan set `"cleanupPeriodDays": 3650` di `~/.claude/settings.json` supaya transcri
 - Rahasia berpola umum (token `sk-…`, `ghp_…`, JWT, private key, `password=…`) disamarkan. Bentuk lain bisa lolos —
   jangan tempel rahasia di prompt.
 
+## Membuang entri
+
+Entri percobaan atau perubahan yang dibatalkan: hapus blok entrinya, lalu tambahkan id-nya (dari baris
+`<!-- prompts-log {"id": …} -->`) ke satu baris `<!-- prompts-log-skip id1 id2 -->` di bawah judul file.
+Tanpa itu, backfill berikutnya akan menulisnya lagi dari transcript.
+
 ## Tes
 
 `python3 scripts/test_prompts_log.py`
