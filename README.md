@@ -26,7 +26,9 @@ dan set `"cleanupPeriodDays": 3650` di `~/.claude/settings.json` supaya transcri
 
 - Satu entri = percakapan sejak entri sebelumnya sampai giliran AI yang mengubah file.
 - Tiap balasan manusia disertai pesan AI yang dibalasnya (yang panjang dilipat `<details>`). Pilihan menu ikut dicatat.
-- Jalannya tool dan ringkasan AI sesudah mengubah file tidak dicatat: hasilnya ada di diff git.
+- Pesan AI sesudah mengubah file dicatat sebagai **🤖 (hasil)**. Jalannya tool tidak dicatat: detailnya ada di diff git.
+- Entri sintesis juga punya **🤖 (hasil)**: spesifikasi (API, skema DB, modul, test, keputusan) yang cukup untuk
+  membangun ulang perilaku yang sama. Kode identik tetap hanya bisa dari git.
 - Label: `📝 asli` (dari transcript, prompt persis) atau `🤖 sintesis` (prompt disusun AI dari diff commit karena
   transcript-nya sudah hilang — maksud perubahan, bukan perintah yang benar-benar diberikan).
 - Status: `⏳ belum di-commit` → `🔀 sudah di-commit, belum masuk main` → `✅ sudah di main`. Diperbarui tiap hook jalan.

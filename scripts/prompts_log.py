@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""prompts-log v0.1.1 — catat percakapan dengan AI yang mengubah file ke prompts.md repo.
+"""prompts-log v0.2.0 — catat percakapan dengan AI yang mengubah file ke prompts.md repo.
 
   prompts_log.py hook                       # dipanggil Stop hook, JSON di stdin
   prompts_log.py backfill <repo>           # entri asli dari transcript di Mac ini
   prompts_log.py gap <repo>                # commit di branch default yang belum punya entri
-  prompts_log.py sintesis <repo> <hash>    # entri 🤖 sintesis untuk commit itu, prompt dari stdin
+  prompts_log.py sintesis <repo> <hash>    # entri 🤖 sintesis; stdin: prompt, baris ---HASIL---, spesifikasi hasil
 
 Satu entri = percakapan sejak entri sebelumnya sampai giliran AI yang mengubah file.
 Tiap balasan manusia disertai pesan AI yang dibalasnya. Hanya repo org yang dicatat.
@@ -53,13 +53,13 @@ def clean(s):
     return KV_SECRET.sub(lambda m: m[1] + m[2] + "[DISAMARKAN]", s)
 
 
-def quote_ai(text):
+def quote_ai(text, label="🤖"):
     text = clean(text)
     lines = text.splitlines()
     if len(lines) <= FOLD_LINES:
-        return "**🤖**\n\n" + text + "\n"
+        return f"**{label}**\n\n" + text + "\n"
     first = re.sub(r"[#*`<>|]", "", next(l for l in lines if l.strip())).strip()[:90]
-    return f"**🤖**\n<details><summary>{first}…</summary>\n\n{text}\n\n</details>\n"
+    return f"**{label}**\n<details><summary>{first}…</summary>\n\n{text}\n\n</details>\n"
 
 
 def human_text(content):
@@ -81,7 +81,8 @@ def shell_changes(roots, since):
         st = git(root, "status", "--porcelain", "--untracked-files=all")
         dirty = [l[3:].split(" -> ")[-1].strip('"') for l in st.split("\n") if l]
         changed = [f for f in dirty if os.path.exists(os.path.join(root, f)) and os.path.getmtime(os.path.join(root, f)) >= since - 1]
-        changed += git(root, "log", "--all", f"--since=@{int(since)}", "--name-only", "--format=").split("\n")
+        me = git(root, "config", "user.email")  # commit orang lain yang masuk lewat pull di menit yang sama bukan kerja AI giliran ini
+        changed += git(root, "log", "--all", f"--since=@{int(since)}", *([f"--committer={me}"] if me else []), "--name-only", "--format=").split("\n")
         changed = [f for f in dict.fromkeys(changed) if f and f not in (FILE, ".gitattributes")]
         if changed:
             out[root] = changed
@@ -92,7 +93,17 @@ def epoch(ts):
     return datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
 
 
-def parse(path, live=False):
+def logged_ids(roots):
+    ids = set()
+    for root in roots:
+        f = os.path.join(root, FILE)
+        if os.path.exists(f):
+            text = open(f).read()
+            ids |= {json.loads(m)["id"] for m in MARK.findall(text)} | {i for m in SKIP.findall(text) for i in m.split()}
+    return ids
+
+
+def parse(path, live=False, logged=frozenset()):
     """Entri dari satu transcript: [{id, ts, cwd, branch, convo, files: {root: [rel]}}].
     live=True: giliran terakhir juga diperiksa untuk perubahan lewat shell (hanya valid tepat saat Stop)."""
     out, convo, files, last_ai, asks, cur = [], [], {}, "", {}, {"quoted": ""}
@@ -110,9 +121,15 @@ def parse(path, live=False):
             for root, fs in shell_changes(sorted(r for r in roots if r), epoch(cur["turn_ts"])).items():
                 files.setdefault(root, []).extend(fs)
                 cur["ts"], cur["edited"] = cur["last_ts"], True
+                cur["hasil"] = cur.get("hasil") or cur.get("turn_ai", "")  # hanya lewat shell: pesan AI terakhir giliran itu
         cur.pop("cmds", None)
+        if cur.get("id") in logged and not files:  # giliran ini sudah tercatat sebelumnya (mis. perubahan lewat shell)
+            cur["edited"], cur["hasil"] = True, cur.get("turn_ai", "")
+            cur["quoted"] = cur["hasil"] or cur["quoted"]
         if files:
             out.append({**cur, "convo": list(convo), "files": {r: list(dict.fromkeys(f)) for r, f in files.items()}})
+            cur["quoted"] = cur.get("hasil") or cur["quoted"]  # hasil sudah tampil di entri ini, jangan dikutip ulang
+        cur.pop("hasil", None)
         if cur.get("edited"):
             convo.clear(); files.clear(); cur.pop("edited")
 
@@ -129,13 +146,15 @@ def parse(path, live=False):
                 if not isinstance(b, dict):
                     continue
                 if b.get("type") == "text" and b["text"].strip():
-                    last_ai = b["text"]
+                    last_ai = cur["turn_ai"] = b["text"]
+                    if cur.get("edited"):
+                        cur["hasil"] = b["text"]
                 elif b.get("type") == "tool_use" and b["name"] == "AskUserQuestion":
                     asks[b["id"]] = True
                 elif b.get("type") == "tool_use" and b["name"] == "Bash":
                     cur.setdefault("cmds", []).append(b["input"].get("command", ""))
                 elif b.get("type") == "tool_use" and b["name"] in EDIT_TOOLS:
-                    cur["edited"] = True
+                    cur["edited"], cur["hasil"] = True, ""
                     fp = b["input"].get("file_path") or b["input"].get("notebook_path") or ""
                     root = repo_of(fp) if fp.startswith("/") else ""
                     if root:
@@ -155,7 +174,7 @@ def parse(path, live=False):
         close()  # giliran baru: tutup entri kalau giliran sebelumnya mengubah file
         ai_context()
         convo.append("**👤** " + clean(t) + "\n")
-        cur.update(id=f"{sid}-{o['uuid'][:8]}", cwd=o.get("cwd", ""), branch=o.get("gitBranch", ""), turn_ts=o["timestamp"])
+        cur.update(id=f"{sid}-{o['uuid'][:8]}", cwd=o.get("cwd", ""), branch=o.get("gitBranch", ""), turn_ts=o["timestamp"], turn_ai="")
     close(final=True)
     return out
 
@@ -187,7 +206,7 @@ def render(root, e, who):
     who = e.get("who", who)
     return (f"## {ts.astimezone():%Y-%m-%d %H:%M} · {who} · branch {branch} · {kind}\n"
             f"<!-- prompts-log {meta} -->\n**Status:** {e.get('status') or status(root, e['ts'], files)}\n\n"
-            + "\n".join(e["convo"]) + "\n**Files:** " + ", ".join(f"`{f}`" for f in shown) + "\n\n---\n\n")
+            + "\n".join(e["convo"]) + ("\n" + quote_ai(e["hasil"], "🤖 (hasil)") if e.get("hasil") else "") + "\n**Files:** " + ", ".join(f"`{f}`" for f in shown) + "\n\n---\n\n")
 
 
 def refresh(text, root):
@@ -229,14 +248,16 @@ def gap(root):
     return [l for l in log.split("\n") if l and l.split("\t")[0] not in seen]
 
 
-def sintesis(root, h, prompt):
+def sintesis(root, h, text):
+    prompt, _, hasil = text.partition("\n---HASIL---\n")
     full, ts, an = git(root, "show", "-s", "--format=%H%x09%aI%x09%an", h).split("\t")
     h = full[:7]
     main = default_branch(root).split("/", 1)[1]
     files = [f for f in git(root, "show", "--name-only", "--format=", full).split("\n") if f]
     note = "> Prompt asli tidak tersimpan. Prompt di bawah disusun AI dari diff commit ini, bukan perintah yang benar-benar diberikan.\n"
     e = {"id": f"git-{h}", "ts": ts, "branch": main, "who": an, "kind": "🤖 sintesis",
-         "status": f"✅ sudah di {main} · `{h}`", "convo": [note, "**👤 (sintesis)** " + clean(prompt) + "\n"], "files": {root: files}}
+         "status": f"✅ sudah di {main} · `{h}`", "convo": [note, "**👤 (sintesis)** " + clean(prompt) + "\n"], "files": {root: files},
+         "hasil": hasil.strip()}
     return write(root, [e], an, stage=False)
 
 
@@ -245,7 +266,10 @@ def main():
     if mode == "hook":
         inp = json.load(sys.stdin)
         by_root = {}
-        for e in parse(inp["transcript_path"], live=True):
+        first = parse(inp["transcript_path"], live=True)
+        cwd_root = git(inp.get("cwd") or os.getcwd(), "rev-parse", "--show-toplevel")
+        logged = logged_ids({r for e in first for r in e["files"]} | ({cwd_root} if cwd_root else set()))
+        for e in parse(inp["transcript_path"], live=True, logged=logged):
             for root in e["files"]:
                 by_root.setdefault(root, []).append(e)
         for root, es in by_root.items():
@@ -263,7 +287,7 @@ def main():
             print(f"{sintesis(root, sys.argv[3], sys.stdin.read())} entri sintesis ditulis")
         else:
             paths = [p for p in glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl")) if root + "/" in open(p, errors="replace").read()]
-            es = [e for p in paths for e in parse(p) if root in e["files"]]
+            es = [e for p in paths for e in parse(p, logged=logged_ids([root])) if root in e["files"]]
             n = write(root, es, git(root, "config", "user.name") or "?", stage=False)
             print(f"{n} entri baru ditulis ke {root}/{FILE} ({len(es)} entri ada di transcript Mac ini)")
     else:

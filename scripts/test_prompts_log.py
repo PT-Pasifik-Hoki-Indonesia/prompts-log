@@ -35,12 +35,21 @@ assert "ya lanjut A" in out and "Ada dua opsi" in out and "`a.js`" in out, out
 assert "rahasia123" not in out and "z.js" not in out, "rahasia bocor / repo luar org ikut tercatat"
 assert "⏳ belum di-commit" in out and out.count("## ") == 1
 
+# 1b. Pesan AI sesudah edit tercatat sebagai hasil
+lines.append(ai(t0 + 4, txt("Selesai: a.js dibuat dengan fungsi foo().")))
+assert "**🤖 (hasil)**" in run(lines) or True  # entri sudah tertulis di run sebelumnya; diuji di bawah lewat entri baru
+
 # 2. Perubahan lewat shell di giliran terakhir ikut tercatat
 t1 = time.time()
 open(os.path.join(repo, "b.txt"), "w").write("x")
 lines += [user("u3cccccccc", "ubah b lewat sed", t1 - 1), ai(t1, tool("Bash", command=f"sed -i '' s/a/b/ {repo}/b.txt"))]
 out = run(lines)
 assert "ubah b lewat sed" in out and "`b.txt`" in out, out
+lines.append(ai(time.time(), txt("Selesai: b.txt diubah lewat sed.")))
+os.remove(os.path.join(repo, "prompts.md"))
+out = run(lines)
+assert "**🤖 (hasil)**\n\nSelesai: a.js dibuat" in out and "**🤖 (hasil)**\n\nSelesai: b.txt" in out, out
+assert out.count("Selesai: a.js dibuat") == 1, "hasil dikutip ulang di entri berikutnya"
 assert out.count("## ") == 2, "entri dobel"
 
 # 3. Jalan ulang tidak menambah entri (idempoten), .gitattributes terpasang
@@ -56,7 +65,7 @@ lines += [user("u4dddddddd", "buat c.md, tanya dulu. contoh status: **Status:** 
 out = run(lines)
 e4 = out[out.index("buat c.md"):]
 assert "**🤖 (tanya)** Isinya apa?" in e4 and "**👤 (pilih)** yang singkat" in e4 and "Read the answers" not in e4, e4
-assert e4.count("ubah b lewat sed") == 0 and out.count("**🤖**") == 1, "pesan AI dikutip ulang"
+assert out.count("ubah b lewat sed") == 1 and out.count("Selesai: b.txt") == 1 and out.count("**🤖**") == 1, "percakapan/pesan AI dikutip ulang"
 sys.dont_write_bytecode = True; sys.argv = ["x"]; sys.path.insert(0, os.path.dirname(S)); import prompts_log
 assert "deadbee" not in prompts_log.covered(repo), "hash di kutipan dianggap sudah tercatat"
 # 5. Entri yang dibuang lewat prompts-log-skip tidak ditulis ulang
