@@ -1,5 +1,5 @@
 {
   "name": "prompts-log",
-  "version": "0.3.1",
-  "description": "Catat percakapan dengan AI yang mengubah file ke prompts.md di repo PT-Pasifik-Hoki-Indonesia."
+  "version": "0.4.0",
+  "description": "Catat percakapan dengan AI yang mengubah file ke docs/prompts/ di repo PT-Pasifik-Hoki-Indonesia."
 }

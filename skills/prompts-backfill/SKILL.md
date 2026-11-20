@@ -1,10 +1,12 @@
 ---
 name: prompts-backfill
-description: Isi riwayat prompts.md repo ini - entri asli dari transcript Claude Code di Mac ini, lalu entri sintesis (prompt disusun dari diff) untuk commit yang tidak punya transcript. Pakai saat user minta backfill / isi riwayat prompts.md.
+description: Isi riwayat docs/prompts/ repo ini - entri asli dari transcript Claude Code di Mac ini, lalu entri sintesis (prompt disusun dari diff) untuk commit yang tidak punya transcript. Pakai saat user minta backfill / isi riwayat prompt.
 ---
 
 `S` = `<base directory skill ini>/../../scripts/prompts_log.py`, `R` = `$(git rev-parse --show-toplevel)`.
 
+0. Kalau ada `R/prompts.md` (format lama, v0.3): `python3 S migrate R`, lalu sebutkan ke user bahwa `prompts.md` dan
+   baris `prompts.md merge=union` di `.gitattributes` boleh dihapus.
 1. Entri asli: `python3 S backfill R`. Laporkan jumlahnya.
 2. Daftar commit tanpa entri: `python3 S gap R` (urut lama → baru). Laporkan jumlahnya; kalau banyak, tanya user
    mau semua atau sebagian dulu.
@@ -39,4 +41,4 @@ description: Isi riwayat prompts.md repo ini - entri asli dari transcript Claude
    ```
 4. Cek `cleanupPeriodDays` di `~/.claude/settings.json`. Kalau belum ada atau < 3650, tawarkan menambah
    `"cleanupPeriodDays": 3650` (bawaan Claude Code menghapus transcript setelah 30 hari). Ubah hanya kalau user setuju.
-5. Ingatkan user untuk commit `prompts.md` dan `.gitattributes`. Jangan commit sendiri.
+5. Ingatkan user untuk commit folder `docs/prompts/`. Jangan commit sendiri.

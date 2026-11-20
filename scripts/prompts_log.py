@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""prompts-log v0.3.1 — catat percakapan dengan AI yang mengubah file ke prompts.md repo.
+"""prompts-log v0.4.0 — catat percakapan dengan AI yang mengubah file ke docs/prompts/<YYYYMMDD-HHMMSS>.md repo.
 
   prompts_log.py hook                       # dipanggil Stop hook, JSON di stdin
   prompts_log.py backfill <repo>           # entri asli dari transcript di Mac ini
   prompts_log.py precommit [<repo>]        # dipanggil git pre-commit
   prompts_log.py gap <repo>                # commit di branch default yang belum punya entri
   prompts_log.py sintesis <repo> <hash>    # entri 🤖 sintesis; stdin: prompt, baris ---HASIL---, spesifikasi hasil
+  prompts_log.py migrate <repo>            # pecah prompts.md lama (v0.3) jadi file per entri
 
-Satu entri = percakapan sejak entri sebelumnya sampai giliran AI yang mengubah file.
+Satu entri = satu file, dinamai waktu entri (jam lokal). Satu entri = percakapan sejak entri sebelumnya sampai giliran AI yang mengubah file.
 Tiap balasan manusia disertai pesan AI yang dibalasnya. Hanya repo org yang dicatat.
 """
 import glob, json, os, re, subprocess, sys
@@ -15,13 +16,13 @@ from datetime import datetime, timezone
 
 ORG = re.compile(r"github\.com[:/]PT-Pasifik-Hoki-Indonesia/")
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
-FILE = "prompts.md"
+DIR = "docs/prompts"
+OLD_FILE = "prompts.md"
 FOLD_LINES = 6
 MARK = re.compile(r"<!-- prompts-log (\{.*?\}) -->")
-SKIP = re.compile(r"<!-- prompts-log-skip ([^>]*) -->")  # id entri yang sengaja dibuang (mis. percobaan), jangan ditulis ulang
-HEADER = ("# Prompts\n\nCatatan percakapan dengan AI yang menghasilkan perubahan file di repo ini.\n"
-          "Diisi otomatis oleh plugin `prompts-log`. Jangan diedit manual, dan jangan tempel "
-          "password/token di prompt: semuanya ikut tercatat ke GitHub dan Drive.\n\n---\n\n")
+SKIP = re.compile(r"<!-- prompts-log-skip ([^>]*) -->")  # format lama di prompts.md, dipakai migrate
+SKIP_FILE = ".skip"  # id entri yang sengaja dibuang (mis. percobaan), dipisah spasi/baris; jangan ditulis ulang
+STATUS = re.compile(r"<!-- prompts-log (\{.*?\}) -->\n\*\*Status:\*\* (.*)")
 
 # ponytail: pola rahasia yang umum saja; bentuk lain tetap bisa lolos
 SECRET = re.compile(
@@ -84,7 +85,7 @@ def shell_changes(roots, since):
         changed = [f for f in dirty if os.path.exists(os.path.join(root, f)) and os.path.getmtime(os.path.join(root, f)) >= since - 1]
         me = git(root, "config", "user.email")  # commit orang lain yang masuk lewat pull di menit yang sama bukan kerja AI giliran ini
         changed += git(root, "log", "--all", f"--since=@{int(since)}", *([f"--committer={me}"] if me else []), "--name-only", "--format=").split("\n")
-        changed = [f for f in dict.fromkeys(changed) if f and f not in (FILE, ".gitattributes")]
+        changed = [f for f in dict.fromkeys(changed) if f and not f.startswith(DIR + "/")]
         if changed:
             out[root] = changed
     return out
@@ -94,14 +95,38 @@ def epoch(ts):
     return datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
 
 
+def entry_files(root):
+    return sorted(glob.glob(os.path.join(root, DIR, "*.md")))
+
+
+def all_text(root):
+    return "".join(open(f).read() for f in entry_files(root))
+
+
 def logged_ids(roots):
     ids = set()
     for root in roots:
-        f = os.path.join(root, FILE)
-        if os.path.exists(f):
-            text = open(f).read()
-            ids |= {json.loads(m)["id"] for m in MARK.findall(text)} | {i for m in SKIP.findall(text) for i in m.split()}
+        skip = os.path.join(root, DIR, SKIP_FILE)
+        ids |= {json.loads(m)["id"] for m in MARK.findall(all_text(root))} | set(open(skip).read().split() if os.path.exists(skip) else [])
     return ids
+
+
+def new_path(root, ts):
+    """docs/prompts/<YYYYMMDD-HHMMSS>.md, jam lokal; detik yang sama → -2, -3, …"""
+    base = os.path.join(root, DIR, f"{datetime.fromisoformat(ts.replace('Z', '+00:00')).astimezone():%Y%m%d-%H%M%S}")
+    p, n = base + ".md", 2
+    while os.path.exists(p):
+        p, n = f"{base}-{n}.md", n + 1
+    return p
+
+
+def update_status(root, sub):
+    """Terapkan sub() ke baris Status tiap file entri; tulis hanya file yang berubah."""
+    for f in entry_files(root):
+        text = open(f).read()
+        new = STATUS.sub(sub, text)
+        if new != text:
+            open(f, "w").write(new)
 
 
 def parse(path, live=False, logged=frozenset()):
@@ -205,22 +230,22 @@ def render(root, e, who):
     kind = e.get("kind", "📝 asli")
     shown = files[:15] + ([f"+{len(files) - 15} lainnya"] if len(files) > 15 else [])
     who = e.get("who", who)
-    return (f"## {ts.astimezone():%Y-%m-%d %H:%M} · {who} · branch {branch} · {kind}\n"
+    return (f"# {ts.astimezone():%Y-%m-%d %H:%M} · {who} · branch {branch} · {kind}\n"
             f"<!-- prompts-log {meta} -->\n**Status:** {e.get('status') or status(root, e['ts'], files)}\n\n"
-            + "\n".join(e["convo"]) + ("\n" + quote_ai(e["hasil"], "🤖 (hasil)") if e.get("hasil") else "") + "\n**Files:** " + ", ".join(f"`{f}`" for f in shown) + "\n\n---\n\n")
+            + "\n".join(e["convo"]) + ("\n" + quote_ai(e["hasil"], "🤖 (hasil)") if e.get("hasil") else "") + "\n**Files:** " + ", ".join(f"`{f}`" for f in shown) + "\n")
 
 
-def refresh(text, root):
+def refresh(root):
     """Perbarui baris Status entri yang belum sampai ke branch default."""
-    # ponytail: baris Status diubah di tempat; dua branch yang mengubah status entri yang sama → union merge menyimpan keduanya
+    # ponytail: baris Status diubah di tempat; dua branch yang mengubah status entri yang sama bisa konflik di baris itu
     def sub(m):
         meta = json.loads(m[1])
         return m[0] if m[2].startswith("✅") else f"<!-- prompts-log {m[1]} -->\n**Status:** {status(root, meta['ts'], meta['files'])}"
-    return re.sub(r"<!-- prompts-log (\{.*?\}) -->\n\*\*Status:\*\* (.*)", sub, text)
+    update_status(root, sub)
 
 
 GIT_HOOK = """
-# prompts-log: tandai entri prompts.md yang ikut di-commit (tidak pernah memblokir commit)
+# prompts-log: tandai entri docs/prompts yang ikut di-commit (tidak pernah memblokir commit)
 S=$(ls -d "$HOME"/.claude/plugins/cache/*/prompts-log/*/scripts/prompts_log.py 2>/dev/null | sort -V | tail -1)
 [ -n "$S" ] && python3 "$S" precommit . >/dev/null 2>&1 || true
 """
@@ -239,43 +264,54 @@ def install_git_hook(root):
 
 
 def precommit(root):
-    """Dipanggil git pre-commit: entri ⏳ yang file-nya ikut commit ini jadi 📦, lalu prompts.md ikut di-stage."""
-    path = os.path.join(root, FILE)
-    if not os.path.exists(path):
+    """Dipanggil git pre-commit: entri ⏳ yang file-nya ikut commit ini jadi 📦, lalu docs/prompts ikut di-stage."""
+    if not os.path.isdir(os.path.join(root, DIR)):
         return
     staged = set(git(root, "diff", "--cached", "--name-only").split("\n"))
     def sub(m):
         hit = m[2].startswith("⏳") and staged & set(json.loads(m[1])["files"])
         return f"<!-- prompts-log {m[1]} -->\n**Status:** 📦 sudah di-commit (hash menyusul)" if hit else m[0]
-    text = open(path).read()
-    new = re.sub(r"<!-- prompts-log (\{.*?\}) -->\n\*\*Status:\*\* (.*)", sub, text)
-    if new != text:
-        open(path, "w").write(new)
-    git(root, "add", FILE)
+    update_status(root, sub)
+    git(root, "add", DIR)
 
 
 def write(root, entries, who, stage):
-    path = os.path.join(root, FILE)
-    text = open(path).read() if os.path.exists(path) else HEADER
-    seen = {json.loads(m)["id"] for m in MARK.findall(text)} | {i for m in SKIP.findall(text) for i in m.split()}
-    new = sorted((e for e in entries if e["id"] not in seen), key=lambda e: e["ts"])
-    head, *blocks = re.split(r"(?m)^(?=## \d{4}-)", refresh(text, root) + "".join(render(root, e, who) for e in new))
-    when = lambda b: datetime.fromisoformat(json.loads(MARK.search(b)[1])["ts"].replace("Z", "+00:00"))
-    open(path, "w").write(head + "".join(sorted(blocks, key=when)))  # selalu urut waktu, termasuk entri backfill/sintesis
-    ga = os.path.join(root, ".gitattributes")
-    if f"{FILE} merge=union" not in (open(ga).read() if os.path.exists(ga) else ""):
-        with open(ga, "a") as f:
-            f.write(f"{FILE} merge=union\n")
+    seen = logged_ids([root])
+    refresh(root)
+    os.makedirs(os.path.join(root, DIR), exist_ok=True)
+    n = 0
+    for e in sorted(entries, key=lambda e: e["ts"]):
+        if e["id"] not in seen:
+            seen.add(e["id"])
+            open(new_path(root, e["ts"]), "w").write(render(root, e, who))
+            n += 1
     if stage and not os.environ.get("PROMPTS_LOG_NO_STAGE"):
-        git(root, "add", FILE, ".gitattributes")
+        git(root, "add", DIR)
         install_git_hook(root)
-    return len(new)
+    return n
+
+
+def migrate(root):
+    """prompts.md lama → satu file per entri; baris skip → .skip. prompts.md dan .gitattributes tidak dihapus."""
+    text = open(os.path.join(root, OLD_FILE)).read()
+    os.makedirs(os.path.join(root, DIR), exist_ok=True)
+    skip = " ".join(m for m in SKIP.findall(text)).split()
+    if skip:
+        with open(os.path.join(root, DIR, SKIP_FILE), "a") as f:
+            f.write("\n".join(skip) + "\n")
+    seen, n = logged_ids([root]), 0
+    for b in re.split(r"(?m)^(?=## \d{4}-)", text)[1:]:
+        meta = json.loads(MARK.search(b)[1])
+        if meta["id"] not in seen:
+            body = b[1:].rstrip()
+            open(new_path(root, meta["ts"]), "w").write((body[:-3].rstrip() if body.endswith("---") else body) + "\n")
+            n += 1
+    return n
 
 
 def covered(root):
-    """Hash commit yang sudah terwakili entri di prompts.md (id git-… atau hash di baris Status)."""
-    path = os.path.join(root, FILE)
-    text = open(path).read() if os.path.exists(path) else ""
+    """Hash commit yang sudah terwakili entri di docs/prompts (id git-… atau hash di baris Status)."""
+    text = all_text(root)
     return set(re.findall(r'"id": "git-([0-9a-f]+)"', text)) | set(re.findall(r"-->\n\*\*Status:\*\* .*?`([0-9a-f]{7,})`", text))
 
 
@@ -316,11 +352,13 @@ def main():
             write(root, es, git(root, "config", "user.name") or "?", stage=True)
     elif mode == "precommit":
         precommit(git(sys.argv[2] if len(sys.argv) > 2 else ".", "rev-parse", "--show-toplevel"))
-    elif mode in ("backfill", "gap", "sintesis"):
+    elif mode in ("backfill", "gap", "sintesis", "migrate"):
         root = git(sys.argv[2], "rev-parse", "--show-toplevel")
         if not root or not ORG.search(git(root, "remote", "get-url", "origin")):
             sys.exit(f"{sys.argv[2]}: bukan repo PT-Pasifik-Hoki-Indonesia")
-        if mode == "gap":
+        if mode == "migrate":
+            print(f"{migrate(root)} entri dipindah ke {root}/{DIR}/")
+        elif mode == "gap":
             print("\n".join(gap(root)))
         elif mode == "sintesis":
             print(f"{sintesis(root, sys.argv[3], sys.stdin.read())} entri sintesis ditulis")
@@ -328,7 +366,7 @@ def main():
             paths = [p for p in glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl")) if root + "/" in open(p, errors="replace").read()]
             es = [e for p in paths for e in parse(p, logged=logged_ids([root])) if root in e["files"]]
             n = write(root, es, git(root, "config", "user.name") or "?", stage=False)
-            print(f"{n} entri baru ditulis ke {root}/{FILE} ({len(es)} entri ada di transcript Mac ini)")
+            print(f"{n} entri baru ditulis ke {root}/{DIR}/ ({len(es)} entri ada di transcript Mac ini)")
     else:
         sys.exit(__doc__)
 

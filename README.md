@@ -1,7 +1,8 @@
 # prompts-log
 
-Standar `prompts.md` PT Pasifik Hoki Indonesia: setiap percakapan dengan AI yang **mengubah file** di repo org
-dicatat otomatis ke `prompts.md` di akar repo, supaya kode bisa ditelusuri dan dibangun ulang dari prompt-nya.
+Standar log prompt PT Pasifik Hoki Indonesia: setiap percakapan dengan AI yang **mengubah file** di repo org
+dicatat otomatis ke `docs/prompts/`, **satu file per entri** bernama waktu entri
+(`YYYYMMDD-HHMMSS.md`, jam lokal; detik yang sama diberi akhiran `-2`), supaya kode bisa ditelusuri dan dibangun ulang dari prompt-nya.
 
 ## Pasang (sekali per developer, berlaku di semua repo org)
 
@@ -18,9 +19,10 @@ dan set `"cleanupPeriodDays": 3650` di `~/.claude/settings.json` supaya transcri
 ## Cara kerja
 
 - Hook `Stop` jalan tiap AI selesai menjawab. Kalau giliran itu mengubah file di repo yang remote-nya
-  `github.com/PT-Pasifik-Hoki-Indonesia/…`, entri baru ditambahkan ke `prompts.md` repo itu lalu di-`git add`.
-- Semua branch ikut tercatat. `prompts.md` dianggap final setelah masuk branch default (yang dibaca backup ke Drive).
-- `.gitattributes` diberi `prompts.md merge=union` supaya merge antar-branch tidak konflik.
+  `github.com/PT-Pasifik-Hoki-Indonesia/…`, file entri baru ditulis ke `docs/prompts/` repo itu lalu di-`git add`.
+- Semua branch ikut tercatat. Entri dianggap final setelah masuk branch default (yang dibaca backup ke Drive).
+- File per entri: merge antar-branch tidak konflik, kecuali dua branch sama-sama mengubah baris Status entri yang sama.
+- Repo yang masih punya `prompts.md` (v0.3): `/prompts-backfill` memecahnya otomatis (`prompts_log.py migrate`).
 
 ## Format entri
 
@@ -41,8 +43,8 @@ dan set `"cleanupPeriodDays": 3650` di `~/.claude/settings.json` supaya transcri
 
 ## Membuang entri
 
-Entri percobaan atau perubahan yang dibatalkan: hapus blok entrinya, lalu tambahkan id-nya (dari baris
-`<!-- prompts-log {"id": …} -->`) ke satu baris `<!-- prompts-log-skip id1 id2 -->` di bawah judul file.
+Entri percobaan atau perubahan yang dibatalkan: hapus file entrinya, lalu tambahkan id-nya (dari baris
+`<!-- prompts-log {"id": …} -->`) ke `docs/prompts/.skip`, satu id per baris.
 Tanpa itu, backfill berikutnya akan menulisnya lagi dari transcript.
 
 ## Tes

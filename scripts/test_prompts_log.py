@@ -1,5 +1,5 @@
 """Tes cepat: python3 scripts/test_prompts_log.py — repo + transcript palsu, tanpa jaringan."""
-import json, os, subprocess, sys, tempfile, time
+import glob, json, os, re, shutil, subprocess, sys, tempfile, time
 from datetime import datetime, timezone
 
 S = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prompts_log.py")
@@ -23,8 +23,11 @@ def run(lines):
     open(tr, "w").write("\n".join(json.dumps(l) for l in lines))
     subprocess.run([sys.executable, S, "hook"], input=json.dumps({"transcript_path": tr}), text=True, check=True,
                    env={**os.environ, "PROMPTS_LOG_NO_STAGE": "1"})
-    p = os.path.join(repo, "prompts.md")
-    return open(p).read() if os.path.exists(p) else ""
+    return "".join(open(f).read() for f in files())
+
+D = os.path.join(repo, "docs/prompts")
+files = lambda: sorted(glob.glob(os.path.join(D, "*.md")))
+N = lambda out: out.count("<!-- prompts-log {")
 
 # 1. Edit tool + konteks: "ya lanjut" harus membawa usulan AI yang dijawabnya; rahasia disamarkan
 lines = [user("u1aaaaaaaa", "tambah fitur X, password=rahasia123", t0), ai(t0 + 1, txt("Ada dua opsi: A atau B. Lanjut?")),
@@ -33,7 +36,8 @@ lines = [user("u1aaaaaaaa", "tambah fitur X, password=rahasia123", t0), ai(t0 + 
 out = run(lines)
 assert "ya lanjut A" in out and "Ada dua opsi" in out and "`a.js`" in out, out
 assert "rahasia123" not in out and "z.js" not in out, "rahasia bocor / repo luar org ikut tercatat"
-assert "⏳ belum di-commit" in out and out.count("## ") == 1
+assert "⏳ belum di-commit" in out and N(out) == 1
+assert all(re.fullmatch(r"\d{8}-\d{6}(-\d+)?\.md", os.path.basename(f)) for f in files()), files()
 
 # 1b. Pesan AI sesudah edit tercatat sebagai hasil
 lines.append(ai(t0 + 4, txt("Selesai: a.js dibuat dengan fungsi foo().")))
@@ -46,11 +50,11 @@ lines += [user("u3cccccccc", "ubah b lewat sed", t1 - 1), ai(t1, tool("Bash", co
 out = run(lines)
 assert "ubah b lewat sed" in out and "`b.txt`" in out, out
 lines.append(ai(time.time(), txt("Selesai: b.txt diubah lewat sed.")))
-os.remove(os.path.join(repo, "prompts.md"))
+shutil.rmtree(D)
 out = run(lines)
 assert "**🤖 (hasil)**\n\nSelesai: a.js dibuat" in out and "**🤖 (hasil)**\n\nSelesai: b.txt" in out, out
 assert out.count("Selesai: a.js dibuat") == 1, "hasil dikutip ulang di entri berikutnya"
-assert out.count("## ") == 2, "entri dobel"
+assert N(out) == 2 and len(files()) == 2, "entri dobel"
 
 # 2b. File yang SUDAH ter-track diubah lewat shell (baris status git diawali spasi) juga tercatat
 subprocess.run(["git", "-C", repo, "add", "b.txt"], check=True); subprocess.run(["git", "-C", repo, "commit", "-qm", "b"], check=True)
@@ -63,9 +67,8 @@ assert "ubah b yang sudah di-commit" in out_t and out_t.count("`b.txt`") >= 2, o
 subprocess.run(["git", "-C", repo, "checkout", "-q", "b.txt"], check=True)
 lines = tracked
 
-# 3. Jalan ulang tidak menambah entri (idempoten), .gitattributes terpasang
-assert run(lines).count("## ") == 3
-assert "prompts.md merge=union" in open(os.path.join(repo, ".gitattributes")).read()
+# 3. Jalan ulang tidak menambah entri (idempoten)
+assert N(run(lines)) == 3 and len(files()) == 3
 # 4. Jawaban menu: pertanyaan + jawaban, pesan AI lama tidak dikutip ulang; hash yang dikutip tidak dianggap tercatat
 t2 = time.time()
 ask = {"type": "tool_use", "id": "ask1", "name": "AskUserQuestion", "input": {}}
@@ -80,22 +83,29 @@ assert out.count("ubah b lewat sed") == 1 and out.count("Selesai: b.txt") == 1 a
 sys.dont_write_bytecode = True; sys.argv = ["x"]; sys.path.insert(0, os.path.dirname(S)); import prompts_log
 assert "deadbee" not in prompts_log.covered(repo), "hash di kutipan dianggap sudah tercatat"
 # 5. Entri yang dibuang lewat prompts-log-skip tidak ditulis ulang
-p = os.path.join(repo, "prompts.md")
-txt = open(p).read()
-i = txt.index("## ", txt.index("buat c.md") - 400)
-open(p, "w").write(txt[:i].replace("---\n\n", "---\n<!-- prompts-log-skip abcdef12-u4dddddd -->\n\n", 1))
+os.remove(next(f for f in files() if "buat c.md" in open(f).read()))
+open(os.path.join(D, ".skip"), "w").write("abcdef12-u4dddddd\n")
 assert "buat c.md" not in run(lines)
 # 6. pre-commit: entri ⏳ yang file-nya di-stage jadi 📦 dan prompts.md ikut di-stage; hook git terpasang
 open(os.path.join(repo, "a.js"), "w").write("x"); subprocess.run(["git", "-C", repo, "add", "a.js"], check=True)
 subprocess.run([sys.executable, S, "precommit", repo], check=True)
-out = open(os.path.join(repo, "prompts.md")).read()
-blk = {f: next(x for x in out.split("\n## ")[1:] if f"**Files:** `{f}`" in x) for f in ("a.js", "b.txt")}
+blk = {f: next(open(x).read() for x in files() if f"**Files:** `{f}`" in open(x).read()) for f in ("a.js", "b.txt")}
 assert "📦 sudah di-commit" in blk["a.js"], "entri a.js tidak jadi 📦"
 assert "📦" not in blk["b.txt"], "entri b.txt (tidak di-stage) ikut berubah"
 staged = subprocess.run(["git", "-C", repo, "diff", "--cached", "--name-only"], capture_output=True, text=True).stdout
-assert "prompts.md" in staged, staged
+assert "docs/prompts/" in staged, staged
 sys.argv = ["x"]; prompts_log.install_git_hook(repo); prompts_log.install_git_hook(repo)
 hook = open(os.path.join(repo, ".git/hooks/pre-commit")).read()
 assert hook.count("prompts-log: tandai") == 1 and os.access(os.path.join(repo, ".git/hooks/pre-commit"), os.X_OK)
 assert subprocess.run(["git", "-C", repo, "commit", "-qm", "c"]).returncode == 0, "hook memblokir commit"
+# 7. migrate: prompts.md lama dipecah per entri, skip pindah ke .skip, entri yang sudah ada tidak dobel
+old = ("# Prompts\n\n---\n<!-- prompts-log-skip lama-1 -->\n\n"
+       '## 2026-01-02 10:00 · A · branch main · 🤖 sintesis\n<!-- prompts-log {"id": "git-abc1234", "ts": "2026-01-02T03:00:05Z", "files": ["x"]} -->\n'
+       "**Status:** ✅ sudah di main · `abc1234`\n\nisi\n\n---\n\n")
+open(os.path.join(repo, "prompts.md"), "w").write(old)
+assert subprocess.run([sys.executable, S, "migrate", repo], capture_output=True, text=True).stdout.startswith("1 entri")
+assert subprocess.run([sys.executable, S, "migrate", repo], capture_output=True, text=True).stdout.startswith("0 entri")
+m = next(open(f).read() for f in files() if "git-abc1234" in open(f).read())
+assert m.startswith("# 2026-01-02") and not m.rstrip().endswith("---"), m
+assert "abc1234" in prompts_log.covered(repo) and "lama-1" in open(os.path.join(D, ".skip")).read()
 print("ok")
