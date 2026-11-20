@@ -31,7 +31,11 @@ dan set `"cleanupPeriodDays": 3650` di `~/.claude/settings.json` supaya transcri
   membangun ulang perilaku yang sama. Kode identik tetap hanya bisa dari git.
 - Label: `📝 asli` (dari transcript, prompt persis) atau `🤖 sintesis` (prompt disusun AI dari diff commit karena
   transcript-nya sudah hilang — maksud perubahan, bukan perintah yang benar-benar diberikan).
-- Status: `⏳ belum di-commit` → `🔀 sudah di-commit, belum masuk main` → `✅ sudah di main`. Diperbarui tiap hook jalan.
+- Status: `⏳ belum di-commit` → `📦 sudah di-commit (hash menyusul)` → `🔀 sudah di-commit, belum masuk main · <hash>`
+  → `✅ sudah di main · <hash>`.
+  - 📦 dipasang git hook `pre-commit` (dipasang otomatis di clone saat entri pertama ditulis, menambah hook yang sudah
+    ada tanpa menimpanya, tidak pernah memblokir commit). Berlaku untuk commit manual maupun commit oleh AI.
+  - Hash dan 🔀/✅ diisi saat hook Claude Code jalan lagi di repo itu, dan selalu dihitung ulang oleh backup Hermes.
 - Rahasia berpola umum (token `sk-…`, `ghp_…`, JWT, private key, `password=…`) disamarkan. Bentuk lain bisa lolos —
   jangan tempel rahasia di prompt.
 

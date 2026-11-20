@@ -74,4 +74,17 @@ txt = open(p).read()
 i = txt.index("## ", txt.index("buat c.md") - 400)
 open(p, "w").write(txt[:i].replace("---\n\n", "---\n<!-- prompts-log-skip abcdef12-u4dddddd -->\n\n", 1))
 assert "buat c.md" not in run(lines)
+# 6. pre-commit: entri ⏳ yang file-nya di-stage jadi 📦 dan prompts.md ikut di-stage; hook git terpasang
+open(os.path.join(repo, "a.js"), "w").write("x"); subprocess.run(["git", "-C", repo, "add", "a.js"], check=True)
+subprocess.run([sys.executable, S, "precommit", repo], check=True)
+out = open(os.path.join(repo, "prompts.md")).read()
+blk = {f: next(x for x in out.split("\n## ")[1:] if f"**Files:** `{f}`" in x) for f in ("a.js", "b.txt")}
+assert "📦 sudah di-commit" in blk["a.js"], "entri a.js tidak jadi 📦"
+assert "⏳ belum di-commit" in blk["b.txt"], "entri b.txt (tidak di-stage) ikut berubah"
+staged = subprocess.run(["git", "-C", repo, "diff", "--cached", "--name-only"], capture_output=True, text=True).stdout
+assert "prompts.md" in staged, staged
+sys.argv = ["x"]; prompts_log.install_git_hook(repo); prompts_log.install_git_hook(repo)
+hook = open(os.path.join(repo, ".git/hooks/pre-commit")).read()
+assert hook.count("prompts-log: tandai") == 1 and os.access(os.path.join(repo, ".git/hooks/pre-commit"), os.X_OK)
+assert subprocess.run(["git", "-C", repo, "commit", "-qm", "c"]).returncode == 0, "hook memblokir commit"
 print("ok")

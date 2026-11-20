@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""prompts-log v0.2.0 — catat percakapan dengan AI yang mengubah file ke prompts.md repo.
+"""prompts-log v0.3.0 — catat percakapan dengan AI yang mengubah file ke prompts.md repo.
 
   prompts_log.py hook                       # dipanggil Stop hook, JSON di stdin
   prompts_log.py backfill <repo>           # entri asli dari transcript di Mac ini
+  prompts_log.py precommit [<repo>]        # dipanggil git pre-commit
   prompts_log.py gap <repo>                # commit di branch default yang belum punya entri
   prompts_log.py sintesis <repo> <hash>    # entri 🤖 sintesis; stdin: prompt, baris ---HASIL---, spesifikasi hasil
 
@@ -218,6 +219,41 @@ def refresh(text, root):
     return re.sub(r"<!-- prompts-log (\{.*?\}) -->\n\*\*Status:\*\* (.*)", sub, text)
 
 
+GIT_HOOK = """
+# prompts-log: tandai entri prompts.md yang ikut di-commit (tidak pernah memblokir commit)
+S=$(ls -d "$HOME"/.claude/plugins/cache/*/prompts-log/*/scripts/prompts_log.py 2>/dev/null | sort -V | tail -1)
+[ -n "$S" ] && python3 "$S" precommit . >/dev/null 2>&1 || true
+"""
+
+
+def install_git_hook(root):
+    """Pasang pre-commit sekali per clone. Hook yang sudah ada tidak ditimpa, baris prompts-log ditambahkan di akhirnya."""
+    # ponytail: kalau hook lama keluar lebih awal (exit 0 di tengah), baris ini tidak sempat jalan
+    path = git(root, "rev-parse", "--git-path", "hooks/pre-commit")
+    path = path if os.path.isabs(path) else os.path.join(root, path)
+    old = open(path).read() if os.path.exists(path) else "#!/bin/sh\n"
+    if "prompts-log" not in old:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        open(path, "w").write(old.rstrip("\n") + "\n" + GIT_HOOK)
+        os.chmod(path, 0o755)
+
+
+def precommit(root):
+    """Dipanggil git pre-commit: entri ⏳ yang file-nya ikut commit ini jadi 📦, lalu prompts.md ikut di-stage."""
+    path = os.path.join(root, FILE)
+    if not os.path.exists(path):
+        return
+    staged = set(git(root, "diff", "--cached", "--name-only").split("\n"))
+    def sub(m):
+        hit = m[2].startswith("⏳") and staged & set(json.loads(m[1])["files"])
+        return f"<!-- prompts-log {m[1]} -->\n**Status:** 📦 sudah di-commit (hash menyusul)" if hit else m[0]
+    text = open(path).read()
+    new = re.sub(r"<!-- prompts-log (\{.*?\}) -->\n\*\*Status:\*\* (.*)", sub, text)
+    if new != text:
+        open(path, "w").write(new)
+    git(root, "add", FILE)
+
+
 def write(root, entries, who, stage):
     path = os.path.join(root, FILE)
     text = open(path).read() if os.path.exists(path) else HEADER
@@ -232,6 +268,7 @@ def write(root, entries, who, stage):
             f.write(f"{FILE} merge=union\n")
     if stage and not os.environ.get("PROMPTS_LOG_NO_STAGE"):
         git(root, "add", FILE, ".gitattributes")
+        install_git_hook(root)
     return len(new)
 
 
@@ -277,6 +314,8 @@ def main():
                 if not e["cwd"].startswith(root):
                     e["branch"] = git(root, "rev-parse", "--abbrev-ref", "HEAD")
             write(root, es, git(root, "config", "user.name") or "?", stage=True)
+    elif mode == "precommit":
+        precommit(git(sys.argv[2] if len(sys.argv) > 2 else ".", "rev-parse", "--show-toplevel"))
     elif mode in ("backfill", "gap", "sintesis"):
         root = git(sys.argv[2], "rev-parse", "--show-toplevel")
         if not root or not ORG.search(git(root, "remote", "get-url", "origin")):
