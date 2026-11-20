@@ -52,8 +52,19 @@ assert "**🤖 (hasil)**\n\nSelesai: a.js dibuat" in out and "**🤖 (hasil)**\n
 assert out.count("Selesai: a.js dibuat") == 1, "hasil dikutip ulang di entri berikutnya"
 assert out.count("## ") == 2, "entri dobel"
 
+# 2b. File yang SUDAH ter-track diubah lewat shell (baris status git diawali spasi) juga tercatat
+subprocess.run(["git", "-C", repo, "add", "b.txt"], check=True); subprocess.run(["git", "-C", repo, "commit", "-qm", "b"], check=True)
+t1b = time.time()
+open(os.path.join(repo, "b.txt"), "w").write("y")
+msg = {**user("u3bbbbbbbb", "ubah b yang sudah di-commit", t1b - 1), "cwd": repo}  # path relatif: repo dikenali dari cwd sesi
+tracked = lines + [msg, ai(t1b, tool("Bash", command="sed -i '' s/x/y/ b.txt"))]
+out_t = run(tracked)
+assert "ubah b yang sudah di-commit" in out_t and out_t.count("`b.txt`") >= 2, out_t
+subprocess.run(["git", "-C", repo, "checkout", "-q", "b.txt"], check=True)
+lines = tracked
+
 # 3. Jalan ulang tidak menambah entri (idempoten), .gitattributes terpasang
-assert run(lines).count("## ") == 2
+assert run(lines).count("## ") == 3
 assert "prompts.md merge=union" in open(os.path.join(repo, ".gitattributes")).read()
 # 4. Jawaban menu: pertanyaan + jawaban, pesan AI lama tidak dikutip ulang; hash yang dikutip tidak dianggap tercatat
 t2 = time.time()
@@ -80,7 +91,7 @@ subprocess.run([sys.executable, S, "precommit", repo], check=True)
 out = open(os.path.join(repo, "prompts.md")).read()
 blk = {f: next(x for x in out.split("\n## ")[1:] if f"**Files:** `{f}`" in x) for f in ("a.js", "b.txt")}
 assert "📦 sudah di-commit" in blk["a.js"], "entri a.js tidak jadi 📦"
-assert "⏳ belum di-commit" in blk["b.txt"], "entri b.txt (tidak di-stage) ikut berubah"
+assert "📦" not in blk["b.txt"], "entri b.txt (tidak di-stage) ikut berubah"
 staged = subprocess.run(["git", "-C", repo, "diff", "--cached", "--name-only"], capture_output=True, text=True).stdout
 assert "prompts.md" in staged, staged
 sys.argv = ["x"]; prompts_log.install_git_hook(repo); prompts_log.install_git_hook(repo)

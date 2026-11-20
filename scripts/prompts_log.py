@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""prompts-log v0.3.0 — catat percakapan dengan AI yang mengubah file ke prompts.md repo.
+"""prompts-log v0.3.1 — catat percakapan dengan AI yang mengubah file ke prompts.md repo.
 
   prompts_log.py hook                       # dipanggil Stop hook, JSON di stdin
   prompts_log.py backfill <repo>           # entri asli dari transcript di Mac ini
@@ -79,8 +79,8 @@ def shell_changes(roots, since):
     # ponytail: berbasis waktu; file yang diedit manusia di IDE selama giliran yang sama ikut terhitung
     out = {}
     for root in roots:
-        st = git(root, "status", "--porcelain", "--untracked-files=all")
-        dirty = [l[3:].split(" -> ")[-1].strip('"') for l in st.split("\n") if l]
+        # tracked yang berubah (staged/unstaged) + file baru; bukan `status --porcelain`, yang kolom statusnya rusak kena strip()
+        dirty = (git(root, "diff", "--name-only", "HEAD") + "\n" + git(root, "ls-files", "--others", "--exclude-standard")).split("\n")
         changed = [f for f in dirty if os.path.exists(os.path.join(root, f)) and os.path.getmtime(os.path.join(root, f)) >= since - 1]
         me = git(root, "config", "user.email")  # commit orang lain yang masuk lewat pull di menit yang sama bukan kerja AI giliran ini
         changed += git(root, "log", "--all", f"--since=@{int(since)}", *([f"--committer={me}"] if me else []), "--name-only", "--format=").split("\n")
