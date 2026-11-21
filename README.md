@@ -23,10 +23,18 @@ aslinya, ikut tersimpan di git, lalu di-backup harian ke Drive.
    Setelah selesai, commit `docs/prompts/`.
 5. Selanjutnya berjalan otomatis: kerja dan commit seperti biasa, entri baru sudah di-stage dan ikut ter-commit.
 
-Update plugin: `claude plugin marketplace update psg && claude plugin update prompts-log@psg`, lalu buka sesi baru.
-
 **Jangan** menempelkan password, token, atau isi `.env` di prompt, karena semuanya ikut tercatat.
 **Jangan** mengedit file di `docs/prompts/` secara manual (lihat [Membuang entri](#membuang-entri)).
+
+## Cara update
+
+```
+claude plugin marketplace update psg
+claude plugin update prompts-log@psg
+claude plugin list        # cek versinya sudah yang terbaru
+```
+
+Setelah update, tutup sesi Claude Code yang lama lalu buka sesi baru. Sesi yang dibuka sebelum update bisa gagal mencatat.
 
 ## Cara kerja
 
