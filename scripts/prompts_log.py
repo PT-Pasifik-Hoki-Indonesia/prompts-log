@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""prompts-log v0.4.1 — catat percakapan dengan AI yang mengubah file ke docs/prompts/<YYYYMMDD-HHMMSS>.md repo.
+"""prompts-log v0.5.0 — catat percakapan dengan AI yang mengubah file ke docs/prompts/<YYYYMMDD-HHMMSS>.md repo.
 
   prompts_log.py hook                       # dipanggil Stop hook, JSON di stdin
   prompts_log.py backfill <repo>           # entri asli dari transcript di Mac ini
@@ -9,12 +9,11 @@
   prompts_log.py migrate <repo>            # pecah prompts.md lama (v0.3) jadi file per entri
 
 Satu entri = satu file, dinamai waktu entri (jam lokal). Satu entri = percakapan sejak entri sebelumnya sampai giliran AI yang mengubah file.
-Tiap balasan manusia disertai pesan AI yang dibalasnya. Hanya repo org yang dicatat.
+Tiap balasan manusia disertai pesan AI yang dibalasnya. Semua repo git dicatat, kecuali yang dimatikan dengan `git config prompts-log.off true` (/prompts-off).
 """
 import glob, json, os, re, subprocess, sys
 from datetime import datetime, timezone
 
-ORG = re.compile(r"github\.com[:/]PT-Pasifik-Hoki-Indonesia/")
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 DIR = "docs/prompts"
 OLD_FILE = "prompts.md"
@@ -38,12 +37,16 @@ def git(root, *args):
     return r.stdout.strip() if r.returncode == 0 else ""
 
 
+def off(root):  # dimatikan per clone lewat /prompts-off; tidak ikut ter-commit
+    return git(root, "config", "--bool", "prompts-log.off") == "true"
+
+
 _roots = {}
 def repo_of(path):
     d = os.path.dirname(path)
     if d not in _roots:
         root = git(d, "rev-parse", "--show-toplevel") if os.path.isdir(d) else ""
-        _roots[d] = root if root and ORG.search(git(root, "remote", "get-url", "origin")) else ""
+        _roots[d] = root if root and not off(root) else ""
     return _roots[d]
 
 
@@ -357,8 +360,8 @@ def main():
         precommit(git(sys.argv[2] if len(sys.argv) > 2 else ".", "rev-parse", "--show-toplevel"))
     elif mode in ("backfill", "gap", "sintesis", "migrate"):
         root = git(sys.argv[2], "rev-parse", "--show-toplevel")
-        if not root or not ORG.search(git(root, "remote", "get-url", "origin")):
-            sys.exit(f"{sys.argv[2]}: bukan repo PT-Pasifik-Hoki-Indonesia")
+        if not root or off(root):
+            sys.exit(f"{sys.argv[2]}: bukan repo git, atau prompts-log dimatikan di repo ini (/prompts-on)")
         if mode == "migrate":
             print(f"{migrate(root)} entri dipindah ke {root}/{DIR}/")
         elif mode == "gap":

@@ -10,6 +10,7 @@ for r, url in ((repo, "https://github.com/PT-Pasifik-Hoki-Indonesia/x.git"), (ot
     for c in (["init", "-q", "-b", "main"], ["remote", "add", "origin", url], ["config", "user.name", "Tester"],
               ["config", "user.email", "t@example.com"], ["commit", "-q", "--allow-empty", "-m", "init"]):
         subprocess.run(["git", "-C", r, *c], check=True)
+subprocess.run(["git", "-C", other, "config", "prompts-log.off", "true"], check=True)
 
 iso = lambda t: datetime.fromtimestamp(t, timezone.utc).isoformat().replace("+00:00", "Z")
 t0 = time.time() - 5
@@ -35,7 +36,8 @@ lines = [user("u1aaaaaaaa", "tambah fitur X, password=rahasia123", t0), ai(t0 + 
          ai(t0 + 3, tool("Edit", file_path=os.path.join(repo, "a.js"))), ai(t0 + 3, tool("Edit", file_path=os.path.join(other, "z.js")))]
 out = run(lines)
 assert "ya lanjut A" in out and "Ada dua opsi" in out and "`a.js`" in out, out
-assert "rahasia123" not in out and "z.js" not in out, "rahasia bocor / repo luar org ikut tercatat"
+assert "rahasia123" not in out and "z.js" not in out, "rahasia bocor / repo yang dimatikan ikut tercatat"
+assert not os.path.exists(os.path.join(other, "docs/prompts")), "repo yang dimatikan ikut tercatat"
 assert "⏳ belum di-commit" in out and N(out) == 1
 assert all(re.fullmatch(r"\d{8}-\d{6}(-\d+)?\.md", os.path.basename(f)) for f in files()), files()
 

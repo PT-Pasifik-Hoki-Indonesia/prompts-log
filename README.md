@@ -1,6 +1,6 @@
 # prompts-log
 
-Plugin Claude Code yang mencatat otomatis setiap prompt yang mengubah file di repo PT Pasifik Hoki Indonesia
+Plugin Claude Code yang mencatat otomatis setiap prompt yang mengubah file di repo git mana pun
 ke folder `docs/prompts/` di repo itu. Satu file per entri, dengan nama sesuai waktu entri (`YYYYMMDD-HHMMSS.md`).
 
 **Kenapa:** kode sekarang banyak ditulis AI. Tanpa prompt-nya, kita tidak tahu *kenapa* kode itu dibuat
@@ -26,6 +26,11 @@ aslinya, ikut tersimpan di git, lalu di-backup harian ke Drive.
 **Jangan** menempelkan password, token, atau isi `.env` di prompt, karena semuanya ikut tercatat.
 **Jangan** mengedit file di `docs/prompts/` secara manual (lihat [Membuang entri](#membuang-entri)).
 
+## Matikan di repo tertentu
+
+Repo pribadi atau repo klien yang tidak boleh dicatat: buka Claude Code di repo itu lalu ketik `/prompts-off`.
+Berlaku hanya di komputer Anda dan tidak menambah file apa pun ke repo. Nyalakan lagi dengan `/prompts-on`.
+
 ## Cara update
 
 ```
@@ -38,8 +43,8 @@ Setelah update, tutup sesi Claude Code yang lama lalu buka sesi baru. Sesi yang 
 
 ## Cara kerja
 
-- Hook `Stop` jalan tiap AI selesai menjawab. Kalau giliran itu mengubah file di repo yang remote-nya
-  `github.com/PT-Pasifik-Hoki-Indonesia/…`, file entri baru ditulis ke `docs/prompts/` repo itu lalu di-`git add`.
+- Hook `Stop` jalan tiap AI selesai menjawab. Kalau giliran itu mengubah file di sebuah repo git,
+  file entri baru ditulis ke `docs/prompts/` repo itu lalu di-`git add`.
 - Semua branch ikut tercatat. Entri dianggap final setelah masuk branch default (yang dibaca backup ke Drive).
 - File per entri: merge antar-branch tidak konflik, kecuali dua branch sama-sama mengubah baris Status entri yang sama.
 - Repo yang masih punya `prompts.md` (v0.3): `/prompts-backfill` memecahnya otomatis (`prompts_log.py migrate`).
