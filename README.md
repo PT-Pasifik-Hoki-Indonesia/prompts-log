@@ -1,20 +1,32 @@
 # prompts-log
 
-Standar log prompt PT Pasifik Hoki Indonesia: setiap percakapan dengan AI yang **mengubah file** di repo org
-dicatat otomatis ke `docs/prompts/`, **satu file per entri** bernama waktu entri
-(`YYYYMMDD-HHMMSS.md`, jam lokal; detik yang sama diberi akhiran `-2`), supaya kode bisa ditelusuri dan dibangun ulang dari prompt-nya.
+Plugin Claude Code yang mencatat otomatis setiap prompt yang mengubah file di repo PT Pasifik Hoki Indonesia
+ke folder `docs/prompts/` di repo itu. Satu file per entri, dengan nama sesuai waktu entri (`YYYYMMDD-HHMMSS.md`).
 
-## Pasang (sekali per developer, berlaku di semua repo org)
+**Kenapa:** kode sekarang banyak ditulis AI. Tanpa prompt-nya, kita tidak tahu *kenapa* kode itu dibuat
+begitu dan tidak bisa membangunnya ulang. Dengan log ini, tiap perubahan bisa ditelusuri ke permintaan
+aslinya, ikut tersimpan di git, lalu di-backup harian ke Drive.
 
-```
-gh auth login                      # perlu kalau repo ini private
-/plugin marketplace add PT-Pasifik-Hoki-Indonesia/prompts-log
-/plugin install prompts-log@psg
-```
+## Cara pakai
 
-Lalu di tiap repo yang Anda pegang, sekali: `/prompts-backfill` (entri asli dari transcript di Mac Anda, entri
-sintesis untuk commit yang transcript-nya sudah hilang),
-dan set `"cleanupPeriodDays": 3650` di `~/.claude/settings.json` supaya transcript tidak terhapus setelah 30 hari.
+1. Pastikan Claude Code sudah terpasang: `claude --version`. Kalau belum, install dari
+   https://claude.ai/download. Pengguna Windows juga perlu Git for Windows dan Python 3.
+2. Pasang plugin (sekali per komputer):
+   ```
+   claude plugin marketplace add PT-Pasifik-Hoki-Indonesia/prompts-log
+   claude plugin install prompts-log@psg
+   claude plugin list        # harus ada prompts-log@psg, enabled
+   ```
+   Tutup sesi Claude Code yang masih terbuka, lalu buka sesi baru.
+3. Pindah ke folder project. Pastikan berada di `main` atau branch yang nanti di-merge ke main.
+4. Jalankan `claude`, lalu ketik `/prompts-backfill`. Kalau ditanya, pilih **semua commit**.
+   Setelah selesai, commit `docs/prompts/`.
+5. Selanjutnya berjalan otomatis: kerja dan commit seperti biasa, entri baru sudah di-stage dan ikut ter-commit.
+
+Update plugin: `claude plugin marketplace update psg && claude plugin update prompts-log@psg`, lalu buka sesi baru.
+
+**Jangan** menempelkan password, token, atau isi `.env` di prompt, karena semuanya ikut tercatat.
+**Jangan** mengedit file di `docs/prompts/` secara manual (lihat [Membuang entri](#membuang-entri)).
 
 ## Cara kerja
 
