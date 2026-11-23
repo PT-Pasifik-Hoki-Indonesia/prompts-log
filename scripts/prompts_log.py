@@ -67,6 +67,20 @@ def quote_ai(text, label="🤖"):
     return f"**{label}**\n<details><summary>{first}…</summary>\n\n{text}\n\n</details>\n"
 
 
+IDE_VERB = {"ide_opened_file": "membuka", "ide_selection": "memilih baris di"}
+
+
+def strip_injected(t):
+    """Buang teks yang disisipkan alat (IDE, Claude in Chrome, …) dari prompt; info IDE diringkas jadi satu baris."""
+    def ide(m):
+        p = re.search(r"/[^\s:]+", m[2])
+        return f"📎 {IDE_VERB.get(m[1], 'IDE')}: `{os.path.basename(p[0].rstrip('.,')) if p else m[1]}`\n\n"
+    t = re.sub(r"<(ide_[a-z_]+)>([\s\S]*?)</\1>", ide, t)
+    # ponytail: tag sisipan alat dikenali dari nama ber-underscore; tag tanpa underscore (HTML ketikan user) dibiarkan
+    t = re.sub(r"<([a-z]+_[a-z_]+)>[\s\S]*?</\1>", "", t)
+    return re.sub(r"\n{3,}", "\n\n", t).strip()
+
+
 def human_text(content):
     if isinstance(content, str):
         return content
@@ -197,8 +211,8 @@ def parse(path, live=False, logged=frozenset()):
                 pairs = re.findall(r'"(.+?)"="(.*?)"', r) or [("", r)]
                 ai_context()
                 convo += [f"**🤖 (tanya)** {clean(q)}\n\n**👤 (pilih)** {clean(a)}\n" if q else f"**👤 (pilih)** {clean(a)}\n" for q, a in pairs]
-        t = human_text(content)
-        if not t or not t.strip() or t.lstrip().startswith(NOISE):
+        t = strip_injected(human_text(content) or "")
+        if not re.sub(r"📎.*", "", t).strip() or t.startswith(NOISE):
             continue
         close()  # giliran baru: tutup entri kalau giliran sebelumnya mengubah file
         ai_context()

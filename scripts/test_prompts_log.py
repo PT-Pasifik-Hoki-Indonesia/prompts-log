@@ -119,4 +119,8 @@ assert subprocess.run([sys.executable, S, "migrate", repo], capture_output=True,
 m = next(open(f).read() for f in files() if "git-abc1234" in open(f).read())
 assert m.startswith("# 2026-01-02") and not m.rstrip().endswith("---"), m
 assert "abc1234" in prompts_log.covered(repo) and "lama-1" in open(os.path.join(D, ".skip")).read()
+# 8. sisipan alat dibuang, info IDE diringkas, ketikan user (termasuk HTML) utuh
+p = prompts_log.strip_injected("<ide_opened_file>The user opened the file /Users/a/docs/x.md in the IDE.</ide_opened_file>"
+                               "<browser_instruction># Claude in Chrome\nGIF dll</browser_instruction>\nreadme basi ya? <b>ini</b>")
+assert p == "📎 membuka: `x.md`\n\nreadme basi ya? <b>ini</b>", p
 print("ok")

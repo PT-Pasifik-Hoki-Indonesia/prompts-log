@@ -1,5 +1,5 @@
 {
   "name": "prompts-log",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Catat percakapan dengan AI yang mengubah file ke docs/prompts/ di tiap repo git (matikan per repo dengan /prompts-off)."
 }
