@@ -1,7 +1,7 @@
 {
   "hooks": {
     "Stop": [
-      { "hooks": [ { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/prompts_log.py\" hook", "timeout": 30 } ] }
+      { "hooks": [ { "type": "command", "command": "for P in python3 python py; do \"$P\" -c \"\" 2>/dev/null && exec \"$P\" \"${CLAUDE_PLUGIN_ROOT}/scripts/prompts_log.py\" hook; done", "timeout": 30 } ] }
     ]
   }
 }

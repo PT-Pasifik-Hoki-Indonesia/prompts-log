@@ -33,7 +33,7 @@ NOISE = ("<command-", "<local-command", "<task-notification", "Caveat:", "[Reque
 
 
 def git(root, *args):
-    r = subprocess.run(["git", "-C", root, *args], capture_output=True, text=True)
+    r = subprocess.run(["git", "-C", root, *args], capture_output=True, text=True, encoding="utf-8", errors="replace")
     return r.stdout.strip() if r.returncode == 0 else ""
 
 
@@ -89,7 +89,7 @@ def human_text(content):
     return "\n".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
 
 
-PATH_IN_CMD = re.compile(r"(/(?:Users|home|private|tmp|opt|srv|var)/[^\s'\"`;|&<>()]+)")
+PATH_IN_CMD = re.compile(r"((?:[A-Za-z]:[\\/]|/(?:Users|home|private|tmp|opt|srv|var)/)[^\s'\"`;|&<>()]+)")  # Mac/Linux, atau Windows C:\… / C:/…
 
 
 def shell_changes(roots, since):
@@ -117,14 +117,14 @@ def entry_files(root):
 
 
 def all_text(root):
-    return "".join(open(f).read() for f in entry_files(root))
+    return "".join(open(f, encoding="utf-8").read() for f in entry_files(root))
 
 
 def logged_ids(roots):
     ids = set()
     for root in roots:
         skip = os.path.join(root, DIR, SKIP_FILE)
-        ids |= {json.loads(m)["id"] for m in MARK.findall(all_text(root))} | set(open(skip).read().split() if os.path.exists(skip) else [])
+        ids |= {json.loads(m)["id"] for m in MARK.findall(all_text(root))} | set(open(skip, encoding="utf-8").read().split() if os.path.exists(skip) else [])
     return ids
 
 
@@ -140,10 +140,10 @@ def new_path(root, ts):
 def update_status(root, sub):
     """Terapkan sub() ke baris Status tiap file entri; tulis hanya file yang berubah."""
     for f in entry_files(root):
-        text = open(f).read()
+        text = open(f, encoding="utf-8").read()
         new = STATUS.sub(sub, text)
         if new != text:
-            open(f, "w").write(new)
+            open(f, "w", encoding="utf-8").write(new)
 
 
 def parse(path, live=False, logged=frozenset()):
@@ -176,7 +176,7 @@ def parse(path, live=False, logged=frozenset()):
         if cur.get("edited"):
             convo.clear(); files.clear(); cur.pop("edited")
 
-    for line in open(path, errors="replace"):
+    for line in open(path, encoding="utf-8", errors="replace"):
         try:
             o = json.loads(line)
         except ValueError:
@@ -199,9 +199,9 @@ def parse(path, live=False, logged=frozenset()):
                 elif b.get("type") == "tool_use" and b["name"] in EDIT_TOOLS:
                     cur["edited"], cur["hasil"] = True, ""
                     fp = b["input"].get("file_path") or b["input"].get("notebook_path") or ""
-                    root = repo_of(fp) if fp.startswith("/") else ""
+                    root = repo_of(fp) if os.path.isabs(fp) else ""
                     if root:
-                        files.setdefault(root, []).append(os.path.relpath(os.path.realpath(fp), root))
+                        files.setdefault(root, []).append(os.path.relpath(os.path.realpath(fp), root).replace(os.sep, "/"))
                         cur["ts"] = o["timestamp"]
             cur["last_ts"] = o["timestamp"]
             continue
@@ -264,7 +264,7 @@ def refresh(root):
 GIT_HOOK = """
 # prompts-log: tandai entri docs/prompts yang ikut di-commit (tidak pernah memblokir commit)
 S=$(ls -d "$HOME"/.claude/plugins/cache/*/prompts-log/*/scripts/prompts_log.py 2>/dev/null | sort -V | tail -1)
-[ -n "$S" ] && python3 "$S" precommit . >/dev/null 2>&1 || true
+[ -n "$S" ] && for P in python3 python py; do "$P" -c "" 2>/dev/null && { "$P" "$S" precommit . >/dev/null 2>&1; break; }; done || true
 """
 
 
@@ -273,10 +273,10 @@ def install_git_hook(root):
     # ponytail: kalau hook lama keluar lebih awal (exit 0 di tengah), baris ini tidak sempat jalan
     path = git(root, "rev-parse", "--git-path", "hooks/pre-commit")
     path = path if os.path.isabs(path) else os.path.join(root, path)
-    old = open(path).read() if os.path.exists(path) else "#!/bin/sh\n"
+    old = open(path, encoding="utf-8").read() if os.path.exists(path) else "#!/bin/sh\n"
     if "prompts-log" not in old:
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        open(path, "w").write(old.rstrip("\n") + "\n" + GIT_HOOK)
+        open(path, "w", encoding="utf-8", newline="\n").write(old.rstrip("\n") + "\n" + GIT_HOOK)
         os.chmod(path, 0o755)
 
 
@@ -300,7 +300,7 @@ def write(root, entries, who, stage):
     for e in sorted(entries, key=lambda e: e["ts"]):
         if e["id"] not in seen:
             seen.add(e["id"])
-            open(new_path(root, e["ts"]), "w").write(render(root, e, who))
+            open(new_path(root, e["ts"]), "w", encoding="utf-8").write(render(root, e, who))
             n += 1
     if stage and not os.environ.get("PROMPTS_LOG_NO_STAGE"):
         git(root, "add", DIR)
@@ -310,18 +310,18 @@ def write(root, entries, who, stage):
 
 def migrate(root):
     """prompts.md lama → satu file per entri; baris skip → .skip. prompts.md dan .gitattributes tidak dihapus."""
-    text = open(os.path.join(root, OLD_FILE)).read()
+    text = open(os.path.join(root, OLD_FILE), encoding="utf-8").read()
     os.makedirs(os.path.join(root, DIR), exist_ok=True)
     skip = " ".join(m for m in SKIP.findall(text)).split()
     if skip:
-        with open(os.path.join(root, DIR, SKIP_FILE), "a") as f:
+        with open(os.path.join(root, DIR, SKIP_FILE), "a", encoding="utf-8") as f:
             f.write("\n".join(skip) + "\n")
     seen, n = logged_ids([root]), 0
     for b in re.split(r"(?m)^(?=## \d{4}-)", text)[1:]:
         meta = json.loads(MARK.search(b)[1])
         if meta["id"] not in seen:
             body = b[1:].rstrip()
-            open(new_path(root, meta["ts"]), "w").write((body[:-3].rstrip() if body.endswith("---") else body) + "\n")
+            open(new_path(root, meta["ts"]), "w", encoding="utf-8").write((body[:-3].rstrip() if body.endswith("---") else body) + "\n")
             n += 1
     return n
 
@@ -357,7 +357,7 @@ def sintesis(root, h, text):
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
     if mode == "hook":
-        inp = json.load(sys.stdin)
+        inp = json.loads(sys.stdin.buffer.read().decode("utf-8"))
         by_root = {}
         first = parse(inp["transcript_path"], live=True)
         cwd_root = git(inp.get("cwd") or os.getcwd(), "rev-parse", "--show-toplevel")
@@ -367,7 +367,7 @@ def main():
                 by_root.setdefault(root, []).append(e)
         for root, es in by_root.items():
             for e in es:  # branch saat ini, kecuali sesi dibuka dari repo itu sendiri
-                if not e["cwd"].startswith(root):
+                if not os.path.normcase(os.path.normpath(e["cwd"])).startswith(os.path.normcase(os.path.normpath(root))):
                     e["branch"] = git(root, "rev-parse", "--abbrev-ref", "HEAD")
             write(root, es, git(root, "config", "user.name") or "?", stage=True)
     elif mode == "precommit":
@@ -381,9 +381,9 @@ def main():
         elif mode == "gap":
             print("\n".join(gap(root)))
         elif mode == "sintesis":
-            print(f"{sintesis(root, sys.argv[3], sys.stdin.read())} entri sintesis ditulis")
+            print(f"{sintesis(root, sys.argv[3], sys.stdin.buffer.read().decode('utf-8'))} entri sintesis ditulis")
         else:
-            paths = [p for p in glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl")) if root + "/" in open(p, errors="replace").read()]
+            paths = [p for p in glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl")) if any(k in open(p, encoding="utf-8", errors="replace").read() for k in (root + "/", json.dumps(os.path.normpath(root) + os.sep)[1:-1]))]
             es = [e for p in paths for e in parse(p, logged=logged_ids([root])) if root in e["files"]]
             n = write(root, es, git(root, "config", "user.name") or "?", stage=False)
             print(f"{n} entri baru ditulis ke {root}/{DIR}/ ({len(es)} entri ada di transcript Mac ini)")
